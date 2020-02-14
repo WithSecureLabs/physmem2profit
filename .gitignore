@@ -1,0 +1,16 @@
+*.py[cod]
+client/.env/
+client/venv/
+client/physmem2profit/__pycache__/
+client/rekall_cache/
+client/output/
+
+client/config.json
+
+server/.vs/
+server/packages
+server/obj
+server/bin
+server/*.csproj.user
+
+*.sys

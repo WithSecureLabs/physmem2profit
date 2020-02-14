@@ -1,0 +1,8 @@
+fusepy
+cryptography
+construct
+pyaff4==0.26.post6
+future==0.16.0
+rekall/rekall-lib
+rekall/rekall-core
+rekall/rekall-agent
