@@ -37,3 +37,8 @@ The tool has two components:
 [Rethinking Credential Theft](https://labs.f-secure.com/blog/rethinking-credential-theft/) | a blog post explaining why this approach to credential theft was chosen.
 
 Physmem2profit is developed by [b3arr0](https://twitter.com/b3arr0) and [@TimoHirvonen](https://twitter.com/TimoHirvonen).
+
+Kudos for contributing:
+* Janusz Szmigielski for refactoring the code for the first release
+* Pawel Kurowski for refactoring the code for the first release
+* Grzegorz Rychlik for refactoring the code for the first release
