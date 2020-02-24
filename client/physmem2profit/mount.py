@@ -15,7 +15,7 @@ import tempfile
 ## Class used to mimic file access to external memory.
 class Physmem(Operations):
     ## Functions exposed by each driver class on server.
-    order = ['install', 'map', 'read', 'uninstall']
+    order = ['install', 'map', 'read']
 
     ## Class constructor.
     #
@@ -91,21 +91,6 @@ class Physmem(Operations):
 
     ## Destructor closing connection.
     def __del__(self):
-        # Send command to unload the driver
-        order = ('%s\n%s\n' % (self.driver, self.order[3])).encode('utf-8')
-        msg = struct.pack("<I%ds" % len(order), len(order), order)
-        self.socket.sendall(msg)
-
-        received = self.socket.recv(4)
-        response = struct.unpack("<I", received)[0]
-        if (response):
-            raise Exception(struct.unpack("<%ds" % response, self.socket.recv(response))[0].decode('utf-8'))
-
-        # Send exit command
-        order = ('exit\n').encode('utf-8')
-        msg = struct.pack("<I%ds" % len(order), len(order), order)
-        self.socket.sendall(msg)
-
         print("[*] Read %u MB, cached reads %u MB" % (self.read_total / (1024*1024), self.read_stat_cached / (1024*1024)))
         self.socket.close()
 

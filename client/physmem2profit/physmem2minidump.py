@@ -133,7 +133,12 @@ def ensureFileExist(path):
     else:
         raise Exception('File does not exist: ' + path)
 
-def _dump(label):
+## Main function of module.
+#
+# Reads file with remote machine memory, and starts rekall session on it.
+# Creates LSASS process memory dump.
+# @param label created memory dump will be stored as 'output/label-date-lsass.dmp'
+def dump(label):
     CONFIG_FILE = 'config.json'
     print("[*] Loading config from %s" % (CONFIG_FILE))
     ensureFileExist(CONFIG_FILE)
@@ -206,15 +211,3 @@ def _dump(label):
         f.write(data)
 
     print("[*] Wrote LSASS minidump to %s" % (filepath))
-
-
-## Main function of module.
-#
-# Reads file with remote machine memory, and starts rekall session on it.
-# Creates LSASS process memory dump.
-# @param label created memory dump will be stored as 'output/label-date-lsass.dmp'
-def dump(label):
-    try:
-        _dump(label)
-    except KeyboardInterrupt:
-        pass

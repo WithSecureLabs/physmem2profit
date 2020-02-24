@@ -13,9 +13,9 @@ jobs = []
 #  @param _sig unused parameter.
 #  @param _frame unused parameter.
 def close(_sig = None, _frame = None):
-    for job in jobs:
-        if job.is_alive():
-            job.terminate()
+        for job in jobs:
+            if job.is_alive():
+                job.terminate()
 
 ## Check if required argument was provided.
 #
@@ -49,6 +49,7 @@ def parseInput():
 ## Main function of package.
 def main():
     try:
+        signal.signal(signal.SIGINT, close)
         args = parseInput()
 
         if args.mode == 'all' or args.mode == 'mount':
@@ -63,8 +64,6 @@ def main():
         jobs[-1].join() # wait only for last child.
         close()         # when last child joined, rest can be terminated.
 
-    except KeyboardInterrupt:
-        pass
     except Exception as e:
         print(e)
 
