@@ -18,7 +18,7 @@ namespace Physmem2profit
         #endregion Constants
 
         #region Members
-        protected IntPtr _hServiceFile = IntPtr.Zero;
+        protected IntPtr _hDevice = IntPtr.Zero;
         protected byte[] _MappingParameters = new byte[3 * sizeof(UInt64)];
         protected List<Tuple<UInt64, UInt64>> _MemoryRuns = new List<Tuple<ulong, ulong>>();
         #endregion Members
@@ -33,7 +33,6 @@ namespace Physmem2profit
         /// <summary>
         /// Installs the PMem driver.
         /// </summary>
-        /// <param name="clientStream">NetworkStream of a connected TCP client</param>
         /// <param name="args">relative or absolute path to the pmem driver file</param>
         /// <returns>A buffer containing packet to send.</returns>
         [Command]
@@ -55,15 +54,16 @@ namespace Physmem2profit
                 Program.Log("Driver service started.", Program.LogMessageSeverity.Success);
 
                 // The driver sets up the device object and creates the symbolic link. We just need to grab a handle.
-                _hServiceFile = (System.IntPtr)CreateFile(_ServiceFileName, (uint) AccessRights.GENERIC_READ | (uint) AccessRights.GENERIC_WRITE, (uint) AccessRights.FILE_SHARE_READ |
+                _hDevice = (System.IntPtr)CreateFile(_ServiceFileName, (uint) AccessRights.GENERIC_READ | (uint) AccessRights.GENERIC_WRITE, (uint) AccessRights.FILE_SHARE_READ |
                    (uint) AccessRights.FILE_SHARE_WRITE, 0, 3, 0, 0);
-                if (_hServiceFile == INVALID_HANDLE_VALUE)
+                if (_hDevice == INVALID_HANDLE_VALUE)
                     throw new Exception("Unable to get a handle to 'pmem' device object.");
 
                 // Create and pass a buffer to the driver. We'll be asking for 102400 / 8(ulong) = 12800 values.
-                uint mode = 2;
+                byte[] mode = { 0x2, 0, 0, 0 }; // ACQUISITION_MODE_PTE_MMAP
                 byte[] buffer = new byte[102400];
-                if (!DeviceIoControl(_hServiceFile, INFO_IOCTRL, ref mode, sizeof(uint), buffer, (uint)buffer.Length, out _, IntPtr.Zero))
+                uint bytesReturned = 0;
+                if (!DeviceIoControl(_hDevice, INFO_IOCTRL, mode, (uint)mode.Length, buffer, (uint)buffer.Length, ref bytesReturned, IntPtr.Zero))
                     ThrowWin32Exception("Sending ParseMemoryRuns control code failed, windows error code");
 
                 // Retrieve all needed parameters.
@@ -89,18 +89,34 @@ namespace Physmem2profit
         /// <summary>
         /// Uninstalls the PMem driver.
         /// </summary>
+        /// <param name="_">Unused</param>
+        /// <returns>A buffer containing packet to send.</returns>
         [Command]
-        public void Uninstall()
+        public byte[] Uninstall(byte[] _)
         {
-            Stop();
-            Delete();
+            try
+            {
+                // Close handle to the device first so the service can be stopped
+                CloseHandle(_hDevice);
+                Stop();
+                Delete();
+
+                Program.Log("Successfully unloaded the WinPMem driver.", Program.LogMessageSeverity.Success);
+                return BitConverter.GetBytes(Convert.ToUInt32(0));                                       // Indicates success.
+            }
+            catch (Exception exception)
+            {
+                // Show error on screen and send it to the client.
+                Program.Log(exception.Message, Program.LogMessageSeverity.Error);
+                return BitConverter.GetBytes(Convert.ToUInt32(exception.Message.Length)).Concat(Encoding.UTF8.GetBytes(exception.Message)).ToArray();
+            }
         }
 
         /// <summary>
         /// Sends necessary data to map physical memory as a file system.
         /// </summary>
         /// <param name="clientStream">NetworkStream of a connected TCP client</param>
-        /// <param name="_">Unused command line</param>
+        /// <param name="_">Unused</param>
         /// <returns>A buffer containing packet to send.</returns>
         [Command]
         public byte[] Map(byte[] _)
@@ -138,11 +154,11 @@ namespace Physmem2profit
 
             // Set read pointer to specified memory fragment.
             byte[] packet = new byte[BitConverter.ToUInt64(args, 8)];
-            if (!SetFilePointerEx(_hServiceFile, (long)BitConverter.ToUInt64(args, 0), IntPtr.Zero, 0))
+            if (!SetFilePointerEx(_hDevice, (long)BitConverter.ToUInt64(args, 0), IntPtr.Zero, 0))
                 ThrowWin32Exception("Couldn't move file pointer.");
 
             // Read and return the memory fragment.
-            if (!ReadFile(_hServiceFile, packet, (uint)packet.Length, out uint bytesRead, IntPtr.Zero))
+            if (!ReadFile(_hDevice, packet, (uint)packet.Length, out uint bytesRead, IntPtr.Zero))
                 ThrowWin32Exception("Couldn't read from driver.");
             return packet;
         }

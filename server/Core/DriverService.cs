@@ -41,8 +41,8 @@ namespace Physmem2profit
         protected static extern bool CloseServiceHandle(IntPtr hSCObject);
 
         [DllImport("kernel32", ExactSpelling = true, SetLastError = true, CharSet = CharSet.Auto)]
-        protected static extern bool DeviceIoControl(IntPtr hDevice, uint dwIoControlCode, ref uint lpInBuffer, uint nInBufferSize, byte[] lpOutBuffer, uint nOutBufferSize,
-            out uint lpBytesReturned, IntPtr lpOverlapped);
+        protected static extern bool DeviceIoControl(IntPtr hDevice, uint dwIoControlCode, byte[] inBuffer, uint nInBufferSize, byte[] lpOutBuffer, uint nOutBufferSize,
+            ref uint lpBytesReturned, IntPtr lpOverlapped);
 
         [DllImport("kernel32", SetLastError = true)]
         protected static extern bool SetFilePointerEx(IntPtr hFile, long liDistanceToMove, IntPtr lpNewFilePointer, uint dwMoveMethod);
@@ -153,6 +153,7 @@ namespace Physmem2profit
 
         #region Member fields
         private ServiceHandle _handle = new ServiceHandle();
+        private ServiceHandle _hScManager = new ServiceHandle();
         private string _serviceName;
         #endregion Member fields
 
@@ -176,12 +177,12 @@ namespace Physmem2profit
             }
 
             // Grab a handle to the service manager.
-            var hScManager = new ServiceHandle(OpenSCManager(null, null, (uint)AccessRights.SC_MANAGER_ALL_ACCESS));
-            if (!hScManager.IsSet)
+            _hScManager = new ServiceHandle(OpenSCManager(null, null, (uint)AccessRights.SC_MANAGER_ALL_ACCESS));
+            if (!_hScManager.IsSet)
                 ThrowWin32Exception("Failed to get handle to SC Manager.");
 
             // Check if service already exists.
-            _handle = new ServiceHandle(OpenService(hScManager.Handle, _serviceName, (uint)AccessRights.SERVICE_ALL_ACCESS));
+            _handle = new ServiceHandle(OpenService(_hScManager.Handle, _serviceName, (uint)AccessRights.SERVICE_ALL_ACCESS));
             if (_handle.IsSet)
             {
                 Program.Log("Service " + _serviceName + " already exists.", Program.LogMessageSeverity.Warning);
@@ -193,7 +194,7 @@ namespace Physmem2profit
             if (!File.Exists(pathToDriver))
                 throw new Exception("Driver file does not exist.");
 
-            _handle = new ServiceHandle(CreateService(hScManager.Handle, _serviceName, _serviceName, (uint) AccessRights.SERVICE_ALL_ACCESS, (uint) AccessRights.SERVICE_KERNEL_DRIVER,
+            _handle = new ServiceHandle(CreateService(_hScManager.Handle, _serviceName, _serviceName, (uint) AccessRights.SERVICE_ALL_ACCESS, (uint) AccessRights.SERVICE_KERNEL_DRIVER,
                 (uint) AccessRights.SERVICE_DEMAND_START, (uint) AccessRights.SERVICE_ERROR_IGNORE, Path.GetFullPath(pathToDriver), null, null, null, null, null));
             if (!_handle.IsSet)
                 ThrowWin32Exception("Failed to create service.");
@@ -208,6 +209,7 @@ namespace Physmem2profit
                 ThrowWin32Exception("Failed to delete service.");
 
             _handle.Close();
+            _hScManager.Close();
         }
 
         /// <summary>
