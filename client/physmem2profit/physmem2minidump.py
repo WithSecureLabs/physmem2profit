@@ -152,7 +152,7 @@ def dump(label):
         filename=config['image'],
         autodetect=["rsds"],
         logger=logging.getLogger(),
-        cache = "file",
+        cache = "timed",
         cache_dir = ".rekall_cache",
         repository_path = ['https://github.com/google/rekall-profiles/raw/master', 'http://profiles.rekall-forensic.com'],
         autodetect_build_local = "basic",
