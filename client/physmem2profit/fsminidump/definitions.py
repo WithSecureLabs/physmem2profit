@@ -12,6 +12,7 @@ SystemInfoStream = 7
 Memory64ListStream = 9
 MemoryInfoListStream = 16
 ModuleListStream = 4
+MimikatzStream = 0x1337
 
 minidump_location_descriptor = Struct(
     "DataSize" / Int32ul,

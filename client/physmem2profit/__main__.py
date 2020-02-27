@@ -5,6 +5,7 @@ import sys
 import time
 import mount
 import physmem2minidump
+import os
 
 jobs = []
 
@@ -37,7 +38,15 @@ def parseInput():
     parser.add_argument('--driver', choices=['winpmem'], default='winpmem', help="Specifies class used by server to handle driver (use with mount)")
     parser.add_argument('--install', help="Provides parameters needed for driver installation eg path (use with mount)")
     parser.add_argument('--label', default=('dump'), help="Label to include in the minidump filename (use with dump)")
+    parser.add_argument('--vmem', help="Path to .vmem file (support Credential Guard)")
     args = parser.parse_args()
+
+    if args.vmem:
+        if not os.path.exists(args.vmem):
+            raise Exception("[-] --vmem specified but file %s does not exist" % (args.vmem))
+        if not args.mode == 'dump':
+            raise Exception("[-] Pleae use --mode dump with --vmem switch")
+        return args
 
     if args.mode == 'all' or args.mode == 'mount':
         checkArgument(args.host, "'host'")
@@ -55,7 +64,7 @@ def main():
             socket = mount.init(args.host, args.port)                                               # wait for connection, before creating child process.
             jobs.append(Process(target=lambda: mount.mount(socket, args.driver, args.install)))     # mount will block thread, it need to be handled by child process.
         if args.mode == 'all' or args.mode == 'dump':
-            jobs.append(Process(target=lambda: physmem2minidump.dump(args.label)))
+            jobs.append(Process(target=lambda: physmem2minidump.dump(args.label, args.vmem)))
 
         for job in jobs:
             job.start()

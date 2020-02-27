@@ -33,10 +33,41 @@ The tool has two components:
     * This will write the LSASS minidump to `output/[label]-[date]-lsass.dmp` on the attacking machine.
 1. Copy the minidump to a Windows system and run `mimikatz.exe "sekurlsa::minidump [label]-[date]-lsass.dmp" "sekurlsa::logonpasswords" "exit"`
 
+## Credential Guard
+
+Decrypting credentials protected by Credential Guard requires gaining access to the encryption key that is stored in the Secure World. For testing purposes, Physmem2profit supports retrieving data from the Secure World from VMware Fusion/Workstation snapshots (.vmem files). This allows credentials protected by Credential Guard to be decrypted with the help of Mimikatz.
+
+### Setting up a virtual machine for testing
+
+1. Create a Windows 10 virtual machine with VMware Fusion/Workstation. Join the virtual machine to a domain (Credential Guard [does not protect](https://docs.microsoft.com/en-us/windows/security/identity-protection/credential-guard/credential-guard-protection-limits) local accounts)
+1. In the Advanced settings, Enable VBS (Virtualization Based Security)
+1. Enable encryption for the virtual machine (required for adding a TPM).
+    * You cannot enable encryption for a VM that has linked clones
+1. Add a Trusted Platform Module (TPM) to the VM
+1. Run `msinfo32` to ensure `Virtualization-based security Services Running` says `Credential Guard`
+
+### Testing
+
+1. Login to the virtual machine (with a domain account)
+1. Take a snapshot
+1. Power off the virtual machine
+1. Remove the Trusted Platform Module (required for disabling the encryption)
+1. Disable encryption for the VM (otherwise the .vmem file stays encrypted)
+1. Copy the .vmem file and the .vmsn file. Copy/rename the .vmsn file to .vmss, otherwise Rekall will not be able to parse the .vmem correctly
+1. ```python3 physmem2profit --mode dump --vmem /tmp/Win10-Snapshot1.vmem --label credential-guard-test```
+    * This will write the LSASS minidump to `output/[label]-[date]-lsass.dmp`. The minidump contains a special stream that holds the data from the Secure World, allowing Mimikatz to locate the encryption key.
+    * The Secure World data is also stored to `output/[label]-[date]-secure-world.raw`.
+1. Copy the minidump to a Windows system and run `mimikatz.exe "sekurlsa::minidump [label]-[date]-lsass.dmp" "sekurlsa::logonpasswords" "exit"`
+
+### Future work
+
+The support for bypassing Credential Guard by exploiting the [S3 Resume firmware vulnerability](https://www.kb.cert.org/vuls/id/976132/), demonstated in our [Disobey talk](https://disobey.fi/2020/profile/lets_get_physical), is coming soon :).
+
 ## More Information
+
 [Rethinking Credential Theft](https://labs.f-secure.com/blog/rethinking-credential-theft/) | a blog post explaining why this approach to credential theft was chosen.
 
-Physmem2profit is developed by [b3arr0](https://twitter.com/b3arr0) and [@TimoHirvonen](https://twitter.com/TimoHirvonen).
+Physmem2profit is developed by [@b3arr0](https://twitter.com/b3arr0) and [@TimoHirvonen](https://twitter.com/TimoHirvonen).
 
 Kudos for contributing:
 * Janusz Szmigielski for refactoring the code for the first release

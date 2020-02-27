@@ -11,6 +11,7 @@ class Minidump:
         self.memoryinfo = []
         self.memory64 = []
         self.modules = []
+        self.secure_world = None
 
         # TODO: Some of the constants are specific to building Mimikatz-compatible minidumps
         self.MINIDUMP_HEADER_LEN = 32
@@ -22,6 +23,36 @@ class Minidump:
     # @param data dump
     def parse(self, data):
         print("Not implemented yet")
+        return
+
+    ## Append Secure World data to an existing minidump
+    #
+    # @param data existing minidump
+    # @param extra data from Secure World
+    def append(self, data, extra):
+        output = []
+
+        hdr = MINIDUMP_HEADER.parse(data)
+        offset = hdr.StreamDirectoryRva
+        output.append(data[:hdr.StreamDirectoryRva])
+
+        for x in range(hdr.NumberOfStreams):
+            entry = data[hdr.StreamDirectoryRva+x*minidump_directory_entry.sizeof():hdr.StreamDirectoryRva+(x+1)*minidump_directory_entry.sizeof()]
+
+            s = minidump_directory_entry.parse(entry)
+            if s.StreamType == 0:
+                s.StreamType = 0x1337
+                s.Location.DataSize = len(extra)
+                s.Location.RVA = len(data)
+                output.append(minidump_directory_entry.build(s))
+                break
+
+            output.append(entry)
+        else:
+            return None
+
+        mod = b''.join(output)
+        return mod + data[len(mod):] + extra
 
     ## Parse memory dump.
     #
@@ -106,9 +137,17 @@ class Minidump:
         logging.debug("Setting module list")
         self.modules = module_list
 
+    def set_secure_world(self, secure_world):
+        self.secure_world = secure_world
+
     ## Build minidump
     def build(self):
         logging.debug("Building minidump")
+
+        wanted_streams = [Memory64ListStream, MemoryInfoListStream, SystemInfoStream, ModuleListStream]
+        if self.secure_world:
+            wanted_streams.append(MimikatzStream)
+        self.STREAM_COUNT = len(wanted_streams)
 
         # Build header, set offset to directory
         output = b''
@@ -118,23 +157,25 @@ class Minidump:
         rva = self.MINIDUMP_HEADER_LEN + minidump_directory_entry.sizeof()*self.STREAM_COUNT
         logging.debug(hex(rva))
 
-        wanted_streams = [Memory64ListStream, MemoryInfoListStream, SystemInfoStream, ModuleListStream]
         stream_data = []
         # Build directory, read stream data, set new offsets to streams
         for t in wanted_streams:            
             s = dict(StreamType=t,Location={})
             if t == Memory64ListStream:
-                logging.debug("Memory64ListStream should be at offset", hex(rva))
+                logging.debug("Memory64ListStream should be at offset 0x%x" % rva)
                 s['Location']['DataSize'] = 16 + MINIDUMP_MEMORY_DESCRIPTOR64.sizeof()*len(self.memory64)
             elif t == SystemInfoStream:
-                logging.debug("SystemInfoStream should be at offset", hex(rva))
+                logging.debug("SystemInfoStream should be at offset 0x%x" % rva)
                 s['Location']['DataSize'] = MINIDUMP_SYSTEM_INFO.sizeof()
             elif t == MemoryInfoListStream:
-                logging.debug("MemoryInfoListStream should be at offset", hex(rva))
+                logging.debug("MemoryInfoListStream should be at offset 0x%x" % rva)
                 s['Location']['DataSize'] = 16 + MINIDUMP_MEMORY_INFO.sizeof()*len(self.memoryinfo)
             elif t == ModuleListStream:
-                logging.debug("ModuleListStream should be at offset", hex(rva))
+                logging.debug("ModuleListStream should be at offset 0x%x" % rva)
                 s['Location']['DataSize'] = 4 + MINIDUMP_MODULE.sizeof()*len(self.modules)
+            elif t == MimikatzStream:
+                logging.debug("MimikatzStream should be at offset 0x%x" % rva)
+                s['Location']['DataSize'] = len(self.secure_world)
         
             s['Location']['RVA'] = rva
             rva += s['Location']['DataSize']
@@ -168,7 +209,7 @@ class Minidump:
                 stream, blob = self._build_systeminfo_stream(rva)
                 tail += blob
                 rva += len(blob)
-                logging.debug("Writing SystemInfoStream to offset", hex(len(output)))
+                logging.debug("Writing SystemInfoStream to offset 0x%x" % len(output))
                 output += stream
                 logging.debug("rva is now %x" % (rva))
                 logging.debug("Advanced RVA %x bytes, tail length is %x" % (rva-rva_before, len(tail)))
@@ -176,7 +217,7 @@ class Minidump:
                 rva_before = rva
                 logging.debug("\nRVA before: %x" % (rva_before))
 
-                logging.debug("Writing MemoryInfoListStream to offset", hex(len(output)))
+                logging.debug("Writing MemoryInfoListStream to offset 0x%x" % len(output))
                 output += self._build_memoryinfo_list_stream()
                 logging.debug("Advanced RVA %x bytes, tail length is %x" % (rva-rva_before, len(tail)))
             elif t ==  ModuleListStream:
@@ -185,11 +226,18 @@ class Minidump:
 
                 rva, stream, blob = self._build_modulelist_stream(rva)
                 tail += blob
-                logging.debug("Writing ModuleListStream to offset", hex(len(output)))
+                logging.debug("Writing ModuleListStream to offset 0x%x" % len(output))
                 output += stream
                 logging.debug("rva is now %x, output length is %x" % (rva, len(output)))
                 logging.debug("Advanced RVA %x bytes, tail length is %x" % (rva-rva_before, len(tail)))
+            elif t == MimikatzStream:
+                rva_before = rva
+                logging.debug("\nRVA before: %x" % (rva_before))
+
+                logging.debug("Writing MimikatzStream to offset 0x%x" % len(output))
+                output += self.secure_world
+                logging.debug("Advanced RVA %x bytes, tail length is %x" % (rva-rva_before, len(tail)))
         
         logging.debug("Expected tail start: %x, got: %x" % (expected_tail_start, len(output)))
-        logging.debug(len(output) + len(tail), rva)
+        logging.debug("These should match: %u %u" % (len(output) + len(tail), rva))
         return output + tail

@@ -5,6 +5,7 @@ import logging
 logging.basicConfig(level=logging.CRITICAL)
 from rekall import session
 from rekall import plugins
+from rekall.plugins.addrspaces import intel
 from fsminidump.minidump import Minidump
 import sys
 from binascii import hexlify, unhexlify
@@ -126,19 +127,81 @@ def read_modulelist(s, pid):
 # @param path path to file.
 # @exceptions Exception if file does not exist.
 def ensureFileExist(path):
-    for x in range(10):
+    for x in range(120):
         if(os.path.exists(path)):
             break
         time.sleep(1)
     else:
         raise Exception('File does not exist: ' + path)
 
-def _dump(label):
-    CONFIG_FILE = 'config.json'
-    print("[*] Loading config from %s" % (CONFIG_FILE))
-    ensureFileExist(CONFIG_FILE)
-    with open(CONFIG_FILE) as f:
-        config = json.load(f)
+
+def read_secure_world(s, secure_world_pages):
+    PAGE_SIZE = 4096
+    secure_world = []
+    
+    for addr in secure_world_pages:
+        data = s.default_address_space.base.read(addr, PAGE_SIZE)
+        secure_world.append(data)
+    
+    return b''.join(secure_world)
+
+
+def _cg(s, label):
+    print("[*] Getting physical memory layout")
+    for start, end, count in s.plugins.phys_map().collect():
+        image_size = end
+
+    print("[*] Largest physical address is 0x%x (%u GB)" % (image_size, image_size//1024//1024//1024))
+
+    print("[*] Finding Secure World pages (this will take about %u minutes)" % (image_size//1024//1024//1024))
+    PAGE_SIZE = 0x1000
+    PAGE_BITS = 12
+    STATUS_INTERVAL = 512*1024*1024
+    count = 0
+    secure_world_pages = []
+    for pfn in range(image_size//PAGE_SIZE):
+        count += PAGE_SIZE
+
+        if (count % STATUS_INTERVAL) == 0:
+            print("[*] %u/%u MB analyzed" % (count//1024//1024, image_size//1024//1024))
+
+        pfn_obj = s.profile.get_constant_object("MmPfnDatabase")[pfn]
+        if pfn_obj.u3.e2.ReferenceCount == 2 and pfn_obj.u2.ShareCount == 1 and pfn_obj.PteAddress == 0:
+            secure_world_pages.append(pfn << PAGE_BITS)
+
+    print("[*] Reading %u MB of Secure World data from .vmem" % (len(secure_world_pages)*PAGE_SIZE//1024//1024))
+    secure_world = read_secure_world(s, secure_world_pages)
+
+    filepath = 'output/%s-%s-secure-world.raw' % (label, datetime.datetime.now().strftime("%Y-%m-%d"))
+    print("[*] Writing Secure World data to %s" % (filepath))    
+    with open(filepath, 'wb') as f:
+        f.write(secure_world)
+    
+    return secure_world
+
+
+def _dump(label, vmem):
+    minidump = Minidump()
+
+    config = {}
+    if vmem:
+        image_base, image_ext = os.path.splitext(vmem)
+        if image_ext != ".vmem":
+            print("[-] Image file must have .vmem file extension when using the --vmem switch")
+            sys.exit(1)
+
+        if not os.path.exists(image_base + ".vmss"):
+            print("[-] .vmss file required. If you have a .vmsn file, please rename it to .vmss and try again")
+            sys.exit(1)
+
+        config['image'] = vmem
+        print("[*] Analyzing local image %s" % (image_base))
+    else:
+        CONFIG_FILE = 'config.json'
+        print("[*] Loading config from %s" % (CONFIG_FILE))
+        ensureFileExist(CONFIG_FILE)
+        with open(CONFIG_FILE) as f:
+            config = json.load(f)
 
     ensureFileExist(config['image'])
     print("[*] Analyzing physical memory")
@@ -155,6 +218,22 @@ def _dump(label):
         kernel_base=(config['kernel_base'] if 'kernel_base' in config else None),
     )
 
+    if vmem and str(s.default_address_space.base) != 'VMemAddressSpace':
+        print("[-] No VMmemAddressSpace available. Most likely Rekall failed to parse the .vmss file.")
+        sys.exit(1)
+
+    print("[*] Checking for Credential Guard...")
+    credential_guard = False
+    for row in s.plugins.pslist().collect():
+        if str(row['_EPROCESS'].name).lower() == "lsaiso.exe":
+            credential_guard = True
+            print("[*] Credential Guard detected!")
+            secure_world = _cg(s, label)
+            minidump.set_secure_world(secure_world)
+            break
+    else:
+        print("[*] No Credential Guard detected")
+
     print("[*] Finding LSASS process")
 
     lsass_pid = None
@@ -168,13 +247,11 @@ def _dump(label):
 
     print("[*] LSASS found")
 
-    minidump = Minidump()
-
     build = 0
     if 'build' in config:
         build = int(config['build'])
     else:
-        print("Config did not include Windows build number, collecting it from imageinfo plugin")
+        print("[*] Windows build number not known, collecting it with imageinfo plugin")
         imageinfo = s.plugins.imageinfo().collect()
         for x in imageinfo:
             if 'key' in x and x['key'] == 'NT Build':
@@ -213,8 +290,8 @@ def _dump(label):
 # Reads file with remote machine memory, and starts rekall session on it.
 # Creates LSASS process memory dump.
 # @param label created memory dump will be stored as 'output/label-date-lsass.dmp'
-def dump(label):
+def dump(label, vmem):
     try:
-        _dump(label)
+        _dump(label, vmem)
     except KeyboardInterrupt:
         pass
