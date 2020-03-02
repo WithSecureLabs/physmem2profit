@@ -13,6 +13,7 @@ import json
 import datetime
 import time
 import os
+import intervals as I
 
 ## Get system info.
 #
@@ -62,53 +63,68 @@ def read_memoryinfo(s, pid):
 
     return memoryinfo_list
 
-# TODO: For some reason the output of memdump plugin does not match vaddump
-# The Right Stuff is there but the virtual address seems to be wrong and therefore Mimikatz doesn't find it
-def read_memory64_memdump(s):
-    pslist = s.plugins.pslist(proc_regex='lsass.exe')
-    task = next(pslist.filter_processes())
-    addr_space = task.get_process_address_space() 
-
-    max_memory = s.GetParameter("highest_usermode_address")
-    total = 0
-    memory64_list = []
-    for run in addr_space.get_address_ranges(end=max_memory):
-        size = run.end - run.start
-        total += size
-        data = addr_space.read(run.start, size)
-        #if data.find(b'\x33\xff\x45\x89\x37\x48\x8b\xf3\x45\x85\xc9\x74') != -1:
-        #    print("Found in", hex(run.start), hex(run.end), size)
-        memory64_list.append((run.start, size, data))
-
-    return memory64_list
 
 ## Read memory of process.
 #
 # @param s rekall session.
-# @param pid pid of process to read.
-def read_memory64(s, pid):
+# @param module_list list of loaded modules.
+def read_memory_fast(s, module_list):
+    module_list = sorted(module_list)
+
+    # Get list of available address ranges for LSASS
     pslist = s.plugins.pslist(proc_regex='lsass.exe')
     task = next(pslist.filter_processes())
     addr_space = task.get_process_address_space()
+    max_memory = s.GetParameter("highest_usermode_address")
+    mem_list = sorted([(run.start, run.end) for run in addr_space.get_address_ranges(end=max_memory)])
 
+    # Enumerate modules, find "holes" that need zero filling
+    filling = I.empty()
+    for a, mod_start, size in module_list:
+        d = I.IntervalDict()
+        mod = I.closedopen(mod_start, mod_start + size)
+        d[mod] = 'fill'
+
+        # What parts of the module are available?
+        for start, end in mem_list:
+            mem = I.closedopen(start, end)
+            if mem & mod != I.empty():
+                d[mem] = 'mem'
+            if start > mod_start + size:
+                break
+
+        filling |= d.find('fill')
+
+    # What to read, what to zero fill
+    operations = []
+    for x in list(filling):
+        operations.append((x.lower, x.upper, 'pad'))
+    for start, end in mem_list:
+        operations.append((start, end, 'mem'))
+
+    # Read & fill
+    memoryinfo_list = []
     memory64_list = []
-    for d in s.plugins.vaddump(pids=[pid]).collect():
-        if 'start' not in d:
-            continue
+    for start, end, op in sorted(operations):
+        size = end - start
 
-        start = d['start'].value
-        size = d['end'].value-d['start'].value+1
-        #print(hex(start), size)
+        mi = dict(
+            BaseAddress=start,
+            AllocationBase=0,
+            AllocationProtect=0,
+            RegionSize=size,
+            Protect=0)
+        mi['State'] = 0
+        mi['Type'] = 0
+        memoryinfo_list.append(mi)
 
-        # TODO: This is a hack that vaddump uses too (with 100 MB limit)
-        if size > 100*1024*1024:
-            #print("Skipping memory range", hex(start), size)
-            continue
-
-        data = addr_space.read(start, size)
+        if op == 'fill':
+            data = b'\x00'*size
+        else:
+            data = addr_space.read(start, size)
         memory64_list.append((start, size, data))
 
-    return memory64_list
+    return memoryinfo_list, memory64_list
 
 
 ## Read list of modules.
@@ -223,7 +239,7 @@ def _dump(label, vmem):
     print("[*] Finding LSASS process")
 
     lsass_pid = None
-    for row in s.plugins.pslist().collect():
+    for row in s.plugins.pslist(method='PsActiveProcessHead').collect():
         if str(row['_EPROCESS'].name).lower() == "lsass.exe":
             lsass_pid = row['_EPROCESS'].pid
             break
@@ -234,6 +250,12 @@ def _dump(label, vmem):
         sys.exit(1)
 
     print("[*] LSASS found")
+
+    # We don't want to use these, PsActiveProcessHead is faster
+    s.SetCache("pslist_Sessions", set())
+    s.SetCache("pslist_CSRSS", set())
+    s.SetCache("pslist_PspCidTable", set())
+    s.SetCache("pslist_Handles", set())
 
     print("[*] Checking for Credential Guard...")
     credential_guard = False
@@ -261,12 +283,10 @@ def _dump(label, vmem):
 
     print("[*] Collecting data for minidump: system info")
     systeminfo = read_systeminfo(s, build)
-    print("[*] Collecting data for minidump: memory info")
-    memoryinfo_list = read_memoryinfo(s, lsass_pid)
-    print("[*] Collecting data for minidump: memory content")
-    memory64_list = read_memory64(s, lsass_pid)
     print("[*] Collecting data for minidump: module info")
     module_list = read_modulelist(s, lsass_pid)
+    print("[*] Collecting data for minidump: memory info and content")
+    memoryinfo_list, memory64_list = read_memory_fast(s, module_list)
 
     print("[*] Generating the minidump file")
     minidump.set_systeminfo(systeminfo)

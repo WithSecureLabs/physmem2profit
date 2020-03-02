@@ -1,3 +1,4 @@
+python-intervals
 fusepy
 cryptography
 construct
