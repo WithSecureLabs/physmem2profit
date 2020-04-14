@@ -119,7 +119,9 @@ def read_memory_fast(s, module_list):
         memoryinfo_list.append(mi)
 
         if op == 'fill':
-            data = b'\x00'*size
+            #data = b'\x00'*size
+            # Attempt to read these anyway. Rekall will fill with zeros if the read fails
+            data = addr_space.read(start, size)
         else:
             data = addr_space.read(start, size)
         memory64_list.append((start, size, data))
