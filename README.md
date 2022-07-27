@@ -26,7 +26,7 @@ The tool has two components:
 ## Usage
 
 1. Run `physmem2profit.exe [--ip IP] [-p PORT] [--hidden] [--verbose]` on the target as admin.
-    * You can download the signed Winpmem driver [here](https://github.com/Velocidex/c-aff4/raw/master/tools/pmem/resources/winpmem/att_winpmem_64.sys). This driver needs to be present on the target host.
+    * You can download the signed Winpmem driver [here](https://github.com/Velocidex/WinPmem/raw/master/kernel/binaries/winpmem_x64.sys). This driver needs to be present on the target host.
 1. Run `source physmem2profit/client/.env/bin/activate` on the attacking machine. This command will activate the virtualenv created by `install.sh`.
 1. Run `cd physmem2profit/client` and ```python3 physmem2profit --host HOST [--port PORT] [--mode MODE] [--driver DRIVER ] [--instal DRIVER_PATH_ON_TARGET] [--label LABEL_FOR_MEMORY_DUMP]``` on the attacking machine
     * `physmem2profit.exe` needs to be running on the target machine before you run this command.
